@@ -1,19 +1,21 @@
 import { useEffect, useState } from 'react';
-import { databases, account } from '../lib/appwrite';
-import { Query } from 'appwrite';
+import { databases, account, storage } from '../lib/appwrite';
+import { Query, ID } from 'appwrite'; // Import ID here
 import { appwriteConfig } from '../lib/appwrite';
-import { Leaf, Plus, Calendar, Droplet } from 'lucide-react';
+import { Leaf, Plus, Calendar, Droplet, Camera } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import AddPlantForm from '../components/AddPlantForm';
+import toast from 'react-hot-toast';
 
 interface Plant {
   $id: string;
   name: string;
   species: string;
-  image: string;
+  images: string[];
   lastWatered: string;
   wateringInterval: number;
-  streak: number; // Ensure streak is part of the plant interface
+  streak: number;
+  userId: string;
 }
 
 export default function MyPlants() {
@@ -27,16 +29,15 @@ export default function MyPlants() {
 
   const fetchPlants = async () => {
     try {
-      const user = await account.get(); // Ensure the user is authenticated
+      const user = await account.get();
       const userId = user.$id;
 
       const response = await databases.listDocuments(
         appwriteConfig.databaseId,
         appwriteConfig.collectionId,
-        [Query.equal('userId', userId)] // Fetch only the current user's plants
+        [Query.equal('userId', userId)]
       );
 
-      // Map through the response and set the plants state
       setPlants(response.documents);
     } catch (error) {
       console.error('Error fetching plants:', error);
@@ -46,11 +47,59 @@ export default function MyPlants() {
   };
 
   const handleAddPlant = (newPlant: Plant) => {
-    setPlants((prev) => [newPlant, ...prev]); // Add the new plant to the state
+    setPlants((prev) => [newPlant, ...prev]);
+  };
+
+  const handleImageUpload = async (plantId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    try {
+      const uploadedImageUrl = await uploadImage(file);
+      const currentDate = new Date().toISOString();
+
+      setPlants((prevPlants) =>
+        prevPlants.map((plant) =>
+          plant.$id === plantId
+            ? { ...plant, images: [uploadedImageUrl, ...plant.images], lastWatered: currentDate, streak: plant.streak + 1 }
+            : plant
+        )
+      );
+
+      await databases.updateDocument(
+        appwriteConfig.databaseId,
+        appwriteConfig.collectionId,
+        plantId,
+        {
+          images: [uploadedImageUrl, ...plants.find(p => p.$id === plantId)?.images || []],
+          lastWatered: currentDate,
+          streak: (plants.find(p => p.$id === plantId)?.streak || 0) + 1
+        }
+      );
+
+      toast.success('Image uploaded successfully! Last watered date updated and streak increased.');
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      toast.error('Failed to upload image: ' + (error.message || 'Unknown error'));
+    }
+  };
+
+  const uploadImage = async (file: File) => {
+    try {
+      const uploadResponse = await storage.createFile(
+        appwriteConfig.bucketId,
+        ID.unique(),
+        file
+      );
+      return storage.getFileView(appwriteConfig.bucketId, uploadResponse.$id);
+    } catch (error) {
+      throw new Error('Image upload failed: ' + (error.message || 'Unknown error'));
+    }
   };
 
   if (isLoading) {
-    return <div>Loading...</div>; // Show a loading state
+    return <div>Loading...</div>;
   }
 
   return (
@@ -76,47 +125,67 @@ export default function MyPlants() {
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {plants.map((plant) => (
-          <div key={plant.$id} className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div className="aspect-square bg-gray-100">
-              <img
-                src={plant.image}
-                alt={plant.name}
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="p-4">
-              <h3 className="font-semibold text-lg text-gray-900">{plant.name}</h3>
-              <p className="text-sm text-gray-500">{plant.species}</p>
-              
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Droplet className="h-4 w-4" />
-                  Last watered {formatDistanceToNow(new Date(plant.lastWatered), { addSuffix: true })}
+        {plants.length > 0 ? (
+          plants.map((plant) => (
+            <div key={plant.$id} className="bg-white rounded-xl shadow-sm overflow-hidden relative">
+              <div className="relative aspect-square bg-gray-100">
+                <img
+                  src={plant.images[0]}
+                  alt={plant.name}
+                  className="w-full h-full object-cover"
+                />
+              <label htmlFor={`upload-${plant.$id}`} className="absolute top-4 right-4 cursor-pointer">
+                  <div className="flex items-center justify-center w-8 h-8 bg-white rounded-full shadow-md">
+                      <Camera className="h-5 w-5 text-black" />
+                  </div>
+              </label>
+
+
+                <input
+                  id={`upload-${plant.$id}`}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleImageUpload(plant.$id, e)}
+                  className="hidden"
+                />
+              </div>
+              <div className="p-4">
+                <h3 className="font-semibold text-lg text-gray-900">{plant.name}</h3>
+                <p className="text-sm text-gray-500">{plant.species}</p>
+
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Droplet className="h-4 w-4" />
+                    Last watered {formatDistanceToNow(new Date(plant.lastWatered), { addSuffix: true })}
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Calendar className="h-4 w-4" />
+                    Water every {plant.wateringInterval} days
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-emerald-600">
+                    <Leaf className="h-4 w-4" />
+                    {plant.streak} day streak
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Calendar className="h-4 w-4" />
-                  Water every {plant.wateringInterval} days
-                </div>
-                <div className="flex items-center gap-2 text-sm text-emerald-600">
-                  <Leaf className="h-4 w-4" />
-                  {plant.streak} day streak
+
+                <div className="flex overflow-x-auto mt-4">
+                  {plant.images.slice(0, 3).map((image, index) => (
+                    <img key={index} src={image} alt={`Plant image ${index + 1}`} className="w-20 h-20 object-cover rounded-md mr-2" />
+                  ))}
                 </div>
               </div>
             </div>
+          ))
+        ) : (
+          <div className="text-center py-12">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-100 mb-4">
+              <Leaf className="h-8 w-8 text-emerald-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">No plants yet</h3>
+            <p className="text-gray-500 mt-1">Start by adding your first plant!</p>
           </div>
-        ))}
+        )}
       </div>
-
-      {plants.length === 0 && !isLoading && (
-        <div className="text-center py-12">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-100 mb-4">
-            <Leaf className="h-8 w-8 text-emerald-600" />
-          </div>
-          <h3 className="text-lg font-semibold text-gray-900">No plants yet</h3>
-          <p className="text-gray-500 mt-1">Start by adding your first plant!</p>
-        </div>
-      )}
     </div>
   );
 }
