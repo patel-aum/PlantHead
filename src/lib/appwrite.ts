@@ -8,6 +8,12 @@ export const account = new Account(client);
 export const databases = new Databases(client);
 export const storage = new Storage(client);
 
+export const functionConfig = {
+  functionId: '67226b1b0004854a205a',
+  projectId: '671e32580018427151e7',
+  endpoint: 'https://cloud.appwrite.io/v1'
+};
+
 export const appwriteConfig = {
   projectId: '671e32580018427151e7',
   databaseId: '671e32c900043f645463',

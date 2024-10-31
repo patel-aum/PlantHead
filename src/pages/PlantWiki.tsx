@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Leaf } from 'lucide-react';
+import { functionConfig } from '../lib/appwrite';
 
 const PlantWiki = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -9,24 +10,34 @@ const PlantWiki = () => {
 
   const fetchPlants = async (query = '') => {
     setLoading(true);
-    setError(null); // Reset error state on new fetch
+    setError(null);
+
     try {
-      const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
-      const apiUrl = `https://trefle.io/api/v1/plants/search?token=d8pRqcSJ4CZveG67r347_TD5ANJ6C7sG578qltV9xIg&${query ? `q=${query}&` : ''}`;
-
-      // console.log('Fetching URL:', proxyUrl + apiUrl); // Debugging line to check the URL being called
-
-      const response = await fetch(proxyUrl + apiUrl);
+      const response = await fetch(
+        `${functionConfig.endpoint}/functions/${functionConfig.functionId}/executions`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Appwrite-Project': functionConfig.projectId,
+          },
+          body: JSON.stringify({ query }),
+        }
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
       }
 
-      const data = await response.json();
-      // console.log('Fetched data:', data); // Debugging line to see fetched data
-      setPlants(data.data || []);
+      const result = await response.json();
+      const responseData = JSON.parse(result.responseBody);
+
+      if (responseData.success) {
+        setPlants(responseData.data.data || []);
+      } else {
+        throw new Error(responseData.error || 'Failed to fetch plants');
+      }
     } catch (err) {
-      console.error('Error fetching plants:', err);
       setPlants([]);
       setError('Failed to fetch plants. Please try again later.');
     } finally {
@@ -34,21 +45,21 @@ const PlantWiki = () => {
     }
   };
 
-  // Load initial plants when component mounts
   useEffect(() => {
-    fetchPlants(); // Fetch some plants on initial load
+    fetchPlants(); // Load initial plants when component mounts
   }, []);
 
-  // Handle Enter key press
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
-      handleSearch(); // Call handleSearch when Enter key is pressed
+      handleSearch();
     }
   };
 
   const handleSearch = () => {
-    if (searchQuery.trim() !== '') { // Prevent searching with empty query
-      fetchPlants(searchQuery);
+    if (searchQuery.trim() !== '') {
+      fetchPlants(searchQuery); // Fetch plants with the search query
+    } else {
+      fetchPlants(); // If the search query is empty, fetch all plants
     }
   };
 
@@ -112,18 +123,11 @@ const PlantWiki = () => {
                 {plant.common_name || 'Unknown'}
               </h3>
               <p className="text-sm text-gray-500 italic">{plant.scientific_name}</p>
-              
               <div className="mt-4 space-y-2">
                 {plant.family_common_name && (
                   <div className="text-sm">
                     <span className="text-gray-500">Family:</span>{' '}
                     <span className="text-gray-900">{plant.family_common_name}</span>
-                  </div>
-                )}
-                {plant.family && (
-                  <div className="text-sm">
-                    <span className="text-gray-500">Scientific Family:</span>{' '}
-                    <span className="text-gray-900">{plant.family}</span>
                   </div>
                 )}
                 {plant.year && (
